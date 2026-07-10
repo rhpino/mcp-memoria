@@ -95,6 +95,14 @@ def cosine_search(
         except Exception as e:
             log.warning("vec_decode_failed", extra={"chunk_id": r["id"], "error": str(e)})
             continue
+        # C1: embedding spaces are now heterogeneous (vertex vs fastembed vs
+        # corrupt/truncated BLOBs). Skip any vector whose dimensionality does
+        # not match the query instead of crashing np.dot for the whole search.
+        if emb.shape[0] != query_embedding.shape[0]:
+            log.warning("vec_dim_mismatch_skipped",
+                        extra={"chunk_id": r["id"], "emb_dim": int(emb.shape[0]),
+                               "query_dim": int(query_embedding.shape[0])})
+            continue
         e_norm = float(np.linalg.norm(emb))
         if e_norm == 0:
             continue

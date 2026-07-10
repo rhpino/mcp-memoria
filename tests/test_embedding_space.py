@@ -28,17 +28,19 @@ def test_cosine_search_ignores_mismatched_embedding_space(isolate_test_db):
             384,
         ),
     )
+    try:
+        results = search.cosine_search(
+            np.array([1.0, 0.0] + [0.0] * 382, dtype=np.float32),
+            scope="test-space",
+            limit=10,
+            embedding_provider="vertex",
+            embedding_model="text-embedding-004",
+            embedding_dim=384,
+        )
 
-    results = search.cosine_search(
-        np.array([1.0, 0.0] + [0.0] * 382, dtype=np.float32),
-        scope="test-space",
-        limit=10,
-        embedding_provider="vertex",
-        embedding_model="text-embedding-004",
-        embedding_dim=384,
-    )
-
-    assert results == []
+        assert results == []
+    finally:
+        db.write_one("DELETE FROM mm_entity_chunks WHERE page_slug = %s", ("test/mixed-space",))
 
 
 @pytest.mark.asyncio
