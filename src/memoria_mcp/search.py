@@ -49,6 +49,9 @@ def cosine_search(
     limit: int = 10,
     keyword_boost_enabled: bool = True,
     query_text: str = "",
+    embedding_provider: str | None = None,
+    embedding_model: str | None = None,
+    embedding_dim: int | None = None,
 ) -> list[SearchResult]:
     """Búsqueda por coseno + keyword boost (réplica omni-mcp/server.js:446).
 
@@ -72,6 +75,9 @@ def cosine_search(
     if scope:
         sql += " AND scope = %s"
         params.append(scope)
+    if embedding_provider and embedding_model and embedding_dim:
+        sql += " AND embedding_provider = %s AND embedding_model = %s AND embedding_dim = %s"
+        params.extend([embedding_provider, embedding_model, embedding_dim])
 
     rows = db.read_many(sql, tuple(params))
     if not rows:
@@ -217,6 +223,9 @@ async def hybrid_search(
     limit: int = 10,
     agent_signature: str = "",
     embed_text_fn=None,
+    embedding_provider: str | None = None,
+    embedding_model: str | None = None,
+    embedding_dim: int | None = None,
 ) -> list[SearchResult]:
     """Búsqueda híbrida: vector + keyword + RRF.
 
@@ -236,6 +245,9 @@ async def hybrid_search(
         query_embedding, scope=scope, limit=limit * 3,
         query_text=query_text,
         keyword_boost_enabled=False,
+        embedding_provider=embedding_provider,
+        embedding_model=embedding_model,
+        embedding_dim=embedding_dim,
     )
     keyword_results = keyword_search(query_text, scope=scope, limit=limit * 3)
 

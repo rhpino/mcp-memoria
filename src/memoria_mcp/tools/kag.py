@@ -26,7 +26,8 @@ async def kag_buscar(
     agent_signature: str = "",
 ) -> list[dict]:
     """Búsqueda híbrida: vector + keyword + RRF + cross-refs (KAG)."""
-    query_emb = await embed_mod.embed_text(query)
+    query_emb = await embed_mod.embed_query(query)
+    space = embed_mod.current_space()
 
     results = await search_mod.hybrid_search(
         query_text=query,
@@ -36,7 +37,10 @@ async def kag_buscar(
         hop_depth=hop_depth,
         limit=limit,
         agent_signature=agent_signature,
-        embed_text_fn=embed_mod.embed_text,
+        embed_text_fn=embed_mod.embed_document,
+        embedding_provider=space["provider"],
+        embedding_model=space["model"],
+        embedding_dim=space["dim"],
     )
 
     return [
