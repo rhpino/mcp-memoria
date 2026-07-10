@@ -101,3 +101,25 @@ def test_llm_available_false(monkeypatch):
     import memoria_mcp.bibliotecario as bib_mod
     importlib.reload(bib_mod)
     assert bib_mod.llm_available() is False
+
+
+@pytest.mark.asyncio
+async def test_minimax_call_runs_blocking_http_in_thread(monkeypatch):
+    """LLM HTTP call must not run urllib directly on the event loop."""
+    monkeypatch.setenv("MINIMAX_ENABLED", "true")
+    monkeypatch.setenv("MINIMAX_KEY", "test-key")
+
+    import importlib
+    import memoria_mcp.bibliotecario as bib_mod
+    importlib.reload(bib_mod)
+
+    calls: list[str] = []
+
+    async def fake_to_thread(fn):
+        calls.append("to_thread")
+        return "merged"
+
+    monkeypatch.setattr(bib_mod.asyncio, "to_thread", fake_to_thread)
+
+    assert await bib_mod._call_minimax("prompt") == "merged"
+    assert calls == ["to_thread"]

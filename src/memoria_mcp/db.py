@@ -198,6 +198,7 @@ SCHEMA_STATEMENTS: list[str] = [
       from_id VARCHAR(64) NOT NULL,
       to_id VARCHAR(64) NOT NULL,
       relation_type VARCHAR(20) NOT NULL,
+      actor VARCHAR(100),
       notes TEXT,
       ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       UNIQUE KEY uniq_rel (from_id, to_id, relation_type),
@@ -292,6 +293,10 @@ SCHEMA_STATEMENTS: list[str] = [
     """,
 ]
 
+MIGRATION_STATEMENTS: list[str] = [
+    "ALTER TABLE mm_relations ADD COLUMN IF NOT EXISTS actor VARCHAR(100) NULL AFTER relation_type",
+]
+
 
 def _ensure_database() -> None:
     """Crea la DB si no existe (no se puede usar connect con db= si no existe)."""
@@ -336,6 +341,12 @@ def init_schema() -> dict:
             write_one(stmt)
         except Exception as e:
             log.error("ddl_failed", extra={"error": str(e), "stmt_head": stmt[:60]})
+            return {"db": DB_NAME, "status": "error", "error": str(e)}
+    for stmt in MIGRATION_STATEMENTS:
+        try:
+            write_one(stmt)
+        except Exception as e:
+            log.error("migration_failed", extra={"error": str(e), "stmt_head": stmt[:60]})
             return {"db": DB_NAME, "status": "error", "error": str(e)}
     log.info("schema_ready", extra={"db": DB_NAME, "tables": 6})
     return {"db": DB_NAME, "status": "ok", "tables": 6}

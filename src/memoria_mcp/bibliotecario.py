@@ -12,6 +12,7 @@ Réplica conceptual — no copy-paste de Node.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Optional
@@ -52,24 +53,27 @@ async def _call_minimax(prompt: str) -> Optional[str]:
     if not (MINIMAX_ENABLED and MINIMAX_KEY):
         return None
     try:
-        import urllib.request, json
-        req = urllib.request.Request(
-            MINIMAX_API,
-            data=json.dumps({
-                "model": MINIMAX_MODEL,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 8192,
-                "temperature": 0.3,
-            }).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {MINIMAX_KEY}",
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return data.get("choices", [{}])[0].get("message", {}).get("content")
+        def _request() -> Optional[str]:
+            import urllib.request, json
+            req = urllib.request.Request(
+                MINIMAX_API,
+                data=json.dumps({
+                    "model": MINIMAX_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 8192,
+                    "temperature": 0.3,
+                }).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {MINIMAX_KEY}",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return data.get("choices", [{}])[0].get("message", {}).get("content")
+
+        return await asyncio.to_thread(_request)
     except Exception as e:
         log.warning("minimax_call_failed", extra={"error": str(e)})
         return None
@@ -80,25 +84,28 @@ async def _call_gemini(prompt: str) -> Optional[str]:
     if not GEMINI_KEY:
         return None
     try:
-        import urllib.request, json, urllib.parse
-        url = f"{GEMINI_API}?key={urllib.parse.quote(GEMINI_KEY)}"
-        req = urllib.request.Request(
-            url,
-            data=json.dumps({
-                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.3},
-            }).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return (
-                data.get("candidates", [{}])[0]
-                .get("content", {})
-                .get("parts", [{}])[0]
-                .get("text")
+        def _request() -> Optional[str]:
+            import urllib.request, json, urllib.parse
+            url = f"{GEMINI_API}?key={urllib.parse.quote(GEMINI_KEY)}"
+            req = urllib.request.Request(
+                url,
+                data=json.dumps({
+                    "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                    "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.3},
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
             )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return (
+                    data.get("candidates", [{}])[0]
+                    .get("content", {})
+                    .get("parts", [{}])[0]
+                    .get("text")
+                )
+
+        return await asyncio.to_thread(_request)
     except Exception as e:
         log.warning("gemini_call_failed", extra={"error": str(e)})
         return None
