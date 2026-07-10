@@ -84,6 +84,10 @@ def test_health_endpoint(db_setup):
     data = r.json()
     assert data["name"] == "mcp-memoria"
     assert "db" in data
+    assert data["embedding"]["provider"]
+    assert data["embedding"]["model"]
+    assert isinstance(data["embedding"]["dim"], int)
+    assert "stale_chunks" in data["embedding"]
 
 
 def test_mcp_no_auth_returns_401(db_setup):
