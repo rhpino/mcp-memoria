@@ -1,0 +1,16 @@
+{
+  "name": "omni-mcp",
+  "version": "1.0.0",
+  "description": "MCP server with HTTP/SSE transport for multi-agent memory graph",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.1",
+    "cors": "^2.8.6",
+    "express": "^4.18.2",
+    "mysql2": "^3.22.3"
+  }
+}

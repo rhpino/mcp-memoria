@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "memoria-mcp"
+version = "0.1.0"
+description = "MCP server: memoria de proyectos (decisiones, lecciones, ADRs, links cruzados). Replica mop-mcp pattern."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [
+    { name = "Rodrigo" },
+]
+dependencies = [
+    # HTTP / MCP transport (replica mop-mcp)
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "fastmcp>=2.0",
+    # Validation / data
+    "pydantic>=2.7",
+    "python-frontmatter>=1.1",
+    # Embeddings + vector store (Stage 0: RESEARCH.md decision)
+    "fastembed>=0.3",
+    "sqlite-vec>=0.1",
+    "numpy>=1.26",
+    # Stdlib extras used
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+memoria-mcp = "memoria_mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+memoria_mcp = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"

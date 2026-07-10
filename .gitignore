@@ -1,0 +1,46 @@
+# mcp-memoria .gitignore
+
+# Secrets / local config
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.seed
+
+# Python / env
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+build/
+dist/
+
+# Tests / tooling cache
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Runtime state
+.mcp-memoria/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Operational scratch
+task.md
+implementation_plan.md
+session-handoff-*.md
