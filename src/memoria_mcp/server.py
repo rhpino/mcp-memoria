@@ -16,6 +16,7 @@ import threading
 from fastapi import FastAPI
 from fastmcp import FastMCP
 
+from . import config
 from .observability import setup_logging
 from . import auth as auth_mod, db, instance, paths
 from .health import router as health_router
@@ -24,8 +25,17 @@ from .tools import decisions, lessons, adr, project, links, grafo, kag, bibliote
 setup_logging()
 log = logging.getLogger("memoria_server")
 
+
+def _bootstrap_config() -> None:
+    """Load .env and fail fast when critical runtime config is missing."""
+    config.load_dotenv()
+    config.validate_required_env()
+
+
+_bootstrap_config()
+
 MCP_NAME = "mcp-memoria"
-MCP_PORT = int(os.environ.get("MCP_PORT", "9092"))
+MCP_PORT = int(os.environ["MCP_PORT"])
 
 
 # ── Lazy init (idempotente, thread-safe) ──────────────────────────

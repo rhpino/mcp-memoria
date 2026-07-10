@@ -84,7 +84,7 @@ async def cross_links(topic: str, limit: int = 20) -> list[dict]:
 async def list_links(entity_id: str) -> list[dict]:
     """Lista las relaciones de una entidad."""
     return db.read_many(
-        "SELECT relation_id, from_id, to_id, relation_type, notes, ts "
+        "SELECT relation_id, from_id, to_id, relation_type, actor, notes, ts "
         "FROM mm_relations WHERE from_id = %s OR to_id = %s ORDER BY ts DESC",
         (entity_id, entity_id),
     )
@@ -110,9 +110,9 @@ async def add_link(
 
     try:
         rid = db.write_one(
-            "INSERT INTO mm_relations (from_id, to_id, relation_type, notes) "
-            "VALUES (%s, %s, %s, %s)",
-            (from_id, to_id, relation, notes or None),
+            "INSERT INTO mm_relations (from_id, to_id, relation_type, actor, notes) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (from_id, to_id, relation, actor, notes or None),
         )
         return {
             "relation_id": rid,
