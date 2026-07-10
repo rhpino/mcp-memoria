@@ -2,38 +2,50 @@
 
 Port conceptual de omni-mcp/bibliotecario.cjs (Node.js, merge con MiniMax M3 / Gemini):
 - Detecta conflictos en `mm_conflict_queue` (entity_type, entity_id, gcp_content vs node_content).
-- Para cada conflicto, llama un LLM (MiniMax M3 default, Gemini fallback) para merge semántico.
+- Para cada conflicto, llama un LLM (MiniMax M3 default, Vertex Gemini fallback) para merge semántico.
 - Persiste el merge en `mm_conflict_queue.resolved_content`.
 - Marca con `resolution='merged'` y `resolved_by='bibliotecario'`.
 
-**Degraded mode:** si no hay LLM key activo, marca conflictos como `skipped` con reason.
+**Degraded mode:** si no hay LLM activo, marca conflictos como `skipped` con reason.
 
 Réplica conceptual — no copy-paste de Node.
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import subprocess
+import time
 from typing import Optional
+import urllib.request
 
 from . import db
 
 log = logging.getLogger("memoria_bibliotecario")
 
-# LLM config (env-based; si no hay, degraded mode)
+# LLM config (env-based; si no hay proveedor activo, degraded mode)
 MINIMAX_ENABLED = os.environ.get("MINIMAX_ENABLED", "false").lower() == "true"
 MINIMAX_API = os.environ.get("MINIMAX_API", "https://api.minimax.com/v1/text/chatcompletion_v2")
 MINIMAX_KEY = os.environ.get("MINIMAX_KEY", "")
 MINIMAX_MODEL = os.environ.get("MINIMAX_MODEL", "minimax-m3")
 
-GEMINI_API = os.environ.get("GEMINI_API", "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent")
-GEMINI_KEY = os.environ.get("GEMINI_KEY", "")
+VERTEX_GEMINI_ENABLED = os.environ.get("VERTEX_GEMINI_ENABLED", "true").lower() == "true"
+VERTEX_PROJECT = os.environ.get("VERTEX_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+VERTEX_LOCATION = os.environ.get("VERTEX_LOCATION", "us-central1")
+GCLOUD_BIN = os.environ.get("GCLOUD_BIN", "/snap/bin/gcloud")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-pro")
+
+_adc_token: Optional[str] = None
+_adc_token_expires_at = 0.0
 
 
 def _is_llm_available() -> bool:
-    """True si hay al menos un LLM key configurado."""
-    return (MINIMAX_ENABLED and bool(MINIMAX_KEY)) or bool(GEMINI_KEY)
+    """True si hay al menos un proveedor LLM configurado."""
+    return (MINIMAX_ENABLED and bool(MINIMAX_KEY)) or (
+        VERTEX_GEMINI_ENABLED and bool(VERTEX_PROJECT)
+    )
 
 
 def _build_merge_prompt(entity_id: str, content_a: str, content_b: str) -> str:
@@ -79,45 +91,81 @@ async def _call_minimax(prompt: str) -> Optional[str]:
         return None
 
 
-async def _call_gemini(prompt: str) -> Optional[str]:
-    """Llama Gemini (fallback)."""
-    if not GEMINI_KEY:
+def _get_adc_access_token() -> str:
+    """Return a cached ADC access token from gcloud."""
+    global _adc_token, _adc_token_expires_at
+    now = time.time()
+    if _adc_token and now < _adc_token_expires_at:
+        return _adc_token
+
+    out = subprocess.check_output(
+        [GCLOUD_BIN, "auth", "application-default", "print-access-token"],
+        text=True,
+        timeout=10,
+    )
+    token = out.strip()
+    if not token:
+        raise RuntimeError("gcloud returned empty ADC token")
+    _adc_token = token
+    # gcloud access tokens are typically valid for 1h; refresh early.
+    _adc_token_expires_at = now + 50 * 60
+    return token
+
+
+def _post_json(url: str, payload: dict, headers: dict) -> dict:
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+async def _call_vertex_gemini(prompt: str) -> Optional[str]:
+    """Llama Gemini via Vertex AI + ADC/gcloud."""
+    if not (VERTEX_GEMINI_ENABLED and VERTEX_PROJECT):
         return None
     try:
         def _request() -> Optional[str]:
-            import urllib.request, json, urllib.parse
-            url = f"{GEMINI_API}?key={urllib.parse.quote(GEMINI_KEY)}"
-            req = urllib.request.Request(
+            token = _get_adc_access_token()
+            url = (
+                f"https://{VERTEX_LOCATION}-aiplatform.googleapis.com/v1/"
+                f"projects/{VERTEX_PROJECT}/locations/{VERTEX_LOCATION}/"
+                f"publishers/google/models/{GEMINI_MODEL}:generateContent"
+            )
+            data = _post_json(
                 url,
-                data=json.dumps({
+                {
                     "contents": [{"role": "user", "parts": [{"text": prompt}]}],
                     "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.3},
-                }).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-                method="POST",
+                },
+                {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {token}",
+                },
             )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                return (
-                    data.get("candidates", [{}])[0]
-                    .get("content", {})
-                    .get("parts", [{}])[0]
-                    .get("text")
-                )
+            return (
+                data.get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text")
+            )
 
         return await asyncio.to_thread(_request)
     except Exception as e:
-        log.warning("gemini_call_failed", extra={"error": str(e)})
+        log.warning("vertex_gemini_call_failed", extra={"error": str(e)})
         return None
 
 
 async def _merge_content(entity_id: str, content_a: str, content_b: str) -> Optional[str]:
-    """Merge semántico con MiniMax → Gemini fallback."""
+    """Merge semántico con MiniMax -> Vertex Gemini fallback."""
     prompt = _build_merge_prompt(entity_id, content_a, content_b)
     merged = await _call_minimax(prompt)
     if merged:
         return merged
-    return await _call_gemini(prompt)
+    return await _call_vertex_gemini(prompt)
 
 
 async def enqueue_conflict(
@@ -145,7 +193,7 @@ async def run(max_conflicts: int = 1) -> dict:
         n_skipped = db.write_one(
             "UPDATE mm_conflict_queue SET resolution='skipped', "
             "resolved_by='bibliotecario', "
-            "notes='No LLM key available' "
+            "notes='No LLM provider available' "
             "WHERE resolution='pending'"
         )
         return {

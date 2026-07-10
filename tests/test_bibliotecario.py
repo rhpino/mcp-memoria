@@ -47,10 +47,11 @@ def seeded_conflicts():
 
 @pytest.mark.asyncio
 async def test_run_no_llm_marks_skipped(seeded_conflicts, monkeypatch):
-    """Sin LLM key, run marca todos los pending como 'skipped'."""
+    """Sin proveedor LLM, run marca todos los pending como 'skipped'."""
     monkeypatch.setenv("MINIMAX_ENABLED", "false")
     monkeypatch.setenv("MINIMAX_KEY", "")
     monkeypatch.setenv("GEMINI_KEY", "")
+    monkeypatch.setenv("VERTEX_GEMINI_ENABLED", "false")
 
     import importlib
     import memoria_mcp.bibliotecario as bib_mod
@@ -93,10 +94,11 @@ async def test_resolve_conflict_invalid_action(seeded_conflicts):
 
 
 def test_llm_available_false(monkeypatch):
-    """llm_available devuelve False si no hay keys."""
+    """llm_available devuelve False si no hay proveedor LLM."""
     monkeypatch.setenv("MINIMAX_ENABLED", "false")
     monkeypatch.setenv("MINIMAX_KEY", "")
     monkeypatch.setenv("GEMINI_KEY", "")
+    monkeypatch.setenv("VERTEX_GEMINI_ENABLED", "false")
     import importlib
     import memoria_mcp.bibliotecario as bib_mod
     importlib.reload(bib_mod)
@@ -123,3 +125,62 @@ async def test_minimax_call_runs_blocking_http_in_thread(monkeypatch):
 
     assert await bib_mod._call_minimax("prompt") == "merged"
     assert calls == ["to_thread"]
+
+
+def test_vertex_adc_available_without_gemini_key(monkeypatch):
+    """Gemini fallback uses Vertex ADC/gcloud, not API-key auth."""
+    monkeypatch.setenv("MINIMAX_ENABLED", "false")
+    monkeypatch.setenv("MINIMAX_KEY", "")
+    monkeypatch.setenv("GEMINI_KEY", "")
+    monkeypatch.setenv("VERTEX_GEMINI_ENABLED", "true")
+    monkeypatch.setenv("VERTEX_PROJECT", "test-project")
+    monkeypatch.setenv("VERTEX_LOCATION", "us-central1")
+
+    import importlib
+    import memoria_mcp.bibliotecario as bib_mod
+    importlib.reload(bib_mod)
+
+    assert bib_mod.llm_available() is True
+
+
+@pytest.mark.asyncio
+async def test_vertex_gemini_uses_adc_bearer_and_parses_response(monkeypatch):
+    """Vertex Gemini call gets ADC token and calls aiplatform with Bearer auth."""
+    monkeypatch.setenv("VERTEX_GEMINI_ENABLED", "true")
+    monkeypatch.setenv("VERTEX_PROJECT", "test-project")
+    monkeypatch.setenv("VERTEX_LOCATION", "us-central1")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-test")
+
+    import importlib
+    import memoria_mcp.bibliotecario as bib_mod
+    importlib.reload(bib_mod)
+
+    def fake_token() -> str:
+        return "adc-token"
+
+    called = {}
+
+    def fake_request(url: str, payload: dict, headers: dict) -> dict:
+        called["url"] = url
+        called["payload"] = payload
+        called["headers"] = headers
+        return {
+            "candidates": [
+                {"content": {"parts": [{"text": "merged via vertex"}]}}
+            ]
+        }
+
+    async def fake_to_thread(fn):
+        return fn()
+
+    monkeypatch.setattr(bib_mod, "_get_adc_access_token", fake_token)
+    monkeypatch.setattr(bib_mod, "_post_json", fake_request)
+    monkeypatch.setattr(bib_mod.asyncio, "to_thread", fake_to_thread)
+
+    assert await bib_mod._call_vertex_gemini("prompt") == "merged via vertex"
+    assert called["url"] == (
+        "https://us-central1-aiplatform.googleapis.com/v1/projects/"
+        "test-project/locations/us-central1/publishers/google/models/"
+        "gemini-test:generateContent"
+    )
+    assert called["headers"]["Authorization"] == "Bearer adc-token"
