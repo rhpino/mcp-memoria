@@ -217,6 +217,9 @@ SCHEMA_STATEMENTS: list[str] = [
       entities_referenced JSON,
       word_count INT,
       embedding BLOB,
+      embedding_provider VARCHAR(32),
+      embedding_model VARCHAR(128),
+      embedding_dim INT,
       scope VARCHAR(20),
       ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       UNIQUE KEY uniq_chunk (page_slug, chunk_index),
@@ -295,6 +298,9 @@ SCHEMA_STATEMENTS: list[str] = [
 
 MIGRATION_STATEMENTS: list[str] = [
     "ALTER TABLE mm_relations ADD COLUMN IF NOT EXISTS actor VARCHAR(100) NULL AFTER relation_type",
+    "ALTER TABLE mm_entity_chunks ADD COLUMN IF NOT EXISTS embedding_provider VARCHAR(32) NULL AFTER embedding",
+    "ALTER TABLE mm_entity_chunks ADD COLUMN IF NOT EXISTS embedding_model VARCHAR(128) NULL AFTER embedding_provider",
+    "ALTER TABLE mm_entity_chunks ADD COLUMN IF NOT EXISTS embedding_dim INT NULL AFTER embedding_model",
 ]
 
 

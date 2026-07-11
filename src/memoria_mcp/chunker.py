@@ -183,19 +183,25 @@ async def chunk_and_index(
             emb = None
 
         emb_blob: Optional[bytes] = None
+        embedding_space: dict | None = None
         if emb is not None:
             try:
                 emb_blob = emb.astype(np.float32).tobytes()
+                from . import embed as embed_mod
+
+                embedding_space = embed_mod.current_space()
             except Exception as e:
                 log.warning("blob_conversion_failed", extra={"error": str(e)})
                 emb_blob = None
+                embedding_space = None
 
         db.write_one(
             """
             INSERT INTO mm_entity_chunks (
                 page_slug, chunk_index, heading, chunk_text,
-                entities_referenced, word_count, embedding, scope
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                entities_referenced, word_count, embedding,
+                embedding_provider, embedding_model, embedding_dim, scope
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 page_slug,
@@ -205,6 +211,9 @@ async def chunk_and_index(
                 json.dumps(refs, ensure_ascii=False),
                 word_count,
                 emb_blob,
+                embedding_space["provider"] if embedding_space else None,
+                embedding_space["model"] if embedding_space else None,
+                embedding_space["dim"] if embedding_space else None,
                 scope,
             ),
         )

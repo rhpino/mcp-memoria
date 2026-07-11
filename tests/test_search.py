@@ -132,3 +132,28 @@ def test_record_feedback(seeded_db):
 def test_record_feedback_rejects_invalid():
     with pytest.raises(ValueError):
         search.record_feedback(query_text="x", chunk_id=1, feedback="invalid")
+
+
+def test_cosine_search_skips_mismatched_embedding_dimension(seeded_db):
+    """A chunk with an embedding BLOB of a different dimensionality must be
+    skipped, not crash the whole search. C1 makes embedding spaces
+    heterogeneous, so this guard is essential."""
+    slug = "decisions/test-mismatched-dim"
+    db.write_one(
+        "INSERT INTO mm_entity_chunks "
+        "(page_slug, chunk_index, heading, chunk_text, entities_referenced, "
+        "word_count, embedding, scope) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+        "ON DUPLICATE KEY UPDATE embedding=VALUES(embedding)",
+        (slug, 0, "Mismatch", "Tiny 1-float vector", "[]", 3,
+         np.array([0.9], dtype=np.float32).tobytes(), "decisions"),
+    )
+    try:
+        q = np.array([1.0, 0.0, 0.0] + [0.0] * 381, dtype=np.float32)
+        # Must not raise; mismatched row is skipped silently.
+        results = search.cosine_search(q, scope="decisions", limit=10)
+        assert all(r.page_slug != slug for r in results)
+        # Legitimate 384-dim fixture still found.
+        assert any(r.page_slug == "decisions/test-search-1" for r in results)
+    finally:
+        db.write_one("DELETE FROM mm_entity_chunks WHERE page_slug = %s", (slug,))

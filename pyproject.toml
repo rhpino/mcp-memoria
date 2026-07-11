@@ -24,6 +24,8 @@ dependencies = [
     "fastembed>=0.3",
     "sqlite-vec>=0.1",
     "numpy>=1.26",
+    # Vertex AI auth: ADC token in-process (no gcloud subprocess)
+    "google-auth>=2.20",
     # Stdlib extras used
     "python-multipart>=0.0.9",
 ]

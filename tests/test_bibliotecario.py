@@ -155,12 +155,9 @@ async def test_vertex_gemini_uses_adc_bearer_and_parses_response(monkeypatch):
     import memoria_mcp.bibliotecario as bib_mod
     importlib.reload(bib_mod)
 
-    def fake_token() -> str:
-        return "adc-token"
-
     called = {}
 
-    def fake_request(url: str, payload: dict, headers: dict) -> dict:
+    def fake_request(url: str, payload: dict, headers: dict, timeout: int = 30) -> dict:
         called["url"] = url
         called["payload"] = payload
         called["headers"] = headers
@@ -173,8 +170,12 @@ async def test_vertex_gemini_uses_adc_bearer_and_parses_response(monkeypatch):
     async def fake_to_thread(fn):
         return fn()
 
-    monkeypatch.setattr(bib_mod, "_get_adc_access_token", fake_token)
-    monkeypatch.setattr(bib_mod, "_post_json", fake_request)
+    monkeypatch.setattr(
+        bib_mod.vertex_client,
+        "auth_headers",
+        lambda: {"Content-Type": "application/json", "Authorization": "Bearer adc-token"},
+    )
+    monkeypatch.setattr(bib_mod.vertex_client, "post_json", fake_request)
     monkeypatch.setattr(bib_mod.asyncio, "to_thread", fake_to_thread)
 
     assert await bib_mod._call_vertex_gemini("prompt") == "merged via vertex"

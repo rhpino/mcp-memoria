@@ -13,15 +13,12 @@ Réplica conceptual — no copy-paste de Node.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
-import subprocess
-import time
 from typing import Optional
-import urllib.request
 
 from . import db
+from . import vertex_client
 
 log = logging.getLogger("memoria_bibliotecario")
 
@@ -34,11 +31,7 @@ MINIMAX_MODEL = os.environ.get("MINIMAX_MODEL", "minimax-m3")
 VERTEX_GEMINI_ENABLED = os.environ.get("VERTEX_GEMINI_ENABLED", "true").lower() == "true"
 VERTEX_PROJECT = os.environ.get("VERTEX_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT", "")
 VERTEX_LOCATION = os.environ.get("VERTEX_LOCATION", "us-central1")
-GCLOUD_BIN = os.environ.get("GCLOUD_BIN", "/snap/bin/gcloud")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-pro")
-
-_adc_token: Optional[str] = None
-_adc_token_expires_at = 0.0
 
 
 def _is_llm_available() -> bool:
@@ -91,60 +84,24 @@ async def _call_minimax(prompt: str) -> Optional[str]:
         return None
 
 
-def _get_adc_access_token() -> str:
-    """Return a cached ADC access token from gcloud."""
-    global _adc_token, _adc_token_expires_at
-    now = time.time()
-    if _adc_token and now < _adc_token_expires_at:
-        return _adc_token
-
-    out = subprocess.check_output(
-        [GCLOUD_BIN, "auth", "application-default", "print-access-token"],
-        text=True,
-        timeout=10,
-    )
-    token = out.strip()
-    if not token:
-        raise RuntimeError("gcloud returned empty ADC token")
-    _adc_token = token
-    # gcloud access tokens are typically valid for 1h; refresh early.
-    _adc_token_expires_at = now + 50 * 60
-    return token
-
-
-def _post_json(url: str, payload: dict, headers: dict) -> dict:
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode("utf-8"))
-
-
 async def _call_vertex_gemini(prompt: str) -> Optional[str]:
     """Llama Gemini via Vertex AI + ADC/gcloud."""
     if not (VERTEX_GEMINI_ENABLED and VERTEX_PROJECT):
         return None
     try:
         def _request() -> Optional[str]:
-            token = _get_adc_access_token()
             url = (
                 f"https://{VERTEX_LOCATION}-aiplatform.googleapis.com/v1/"
                 f"projects/{VERTEX_PROJECT}/locations/{VERTEX_LOCATION}/"
                 f"publishers/google/models/{GEMINI_MODEL}:generateContent"
             )
-            data = _post_json(
+            data = vertex_client.post_json(
                 url,
                 {
                     "contents": [{"role": "user", "parts": [{"text": prompt}]}],
                     "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.3},
                 },
-                {
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {token}",
-                },
+                vertex_client.auth_headers(),
             )
             return (
                 data.get("candidates", [{}])[0]
