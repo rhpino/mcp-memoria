@@ -1,41 +1,73 @@
 from __future__ import annotations
 
 
+class _FakeCreds:
+    """Minimal stand-in for google.auth credentials."""
+
+    def __init__(self):
+        self.token: str | None = None
+        self.valid = False
+        self.expired = True
+        self.refresh_count = 0
+
+    def refresh(self, request):
+        self.refresh_count += 1
+        self.token = f"token-{self.refresh_count}"
+        self.valid = True
+        self.expired = False
+
+
 def test_adc_token_is_cached(monkeypatch):
     from memoria_mcp import vertex_client
 
+    creds = _FakeCreds()
+    monkeypatch.setattr(
+        vertex_client.google.auth, "default", lambda **kw: (creds, "proj")
+    )
+
     vertex_client.reset_adc_cache()
-    calls = []
-
-    def fake_check_output(cmd, text, timeout):
-        calls.append(cmd)
-        return "token-1\n"
-
-    monkeypatch.setattr(vertex_client.subprocess, "check_output", fake_check_output)
-    monkeypatch.setattr(vertex_client.time, "time", lambda: 1000.0)
-
     assert vertex_client.get_adc_access_token() == "token-1"
     assert vertex_client.get_adc_access_token() == "token-1"
-    assert calls == [[vertex_client.GCLOUD_BIN, "auth", "application-default", "print-access-token"]]
+    assert creds.refresh_count == 1
 
 
-def test_adc_token_refreshes_after_expiry(monkeypatch):
+def test_adc_token_refreshes_when_expired(monkeypatch):
     from memoria_mcp import vertex_client
 
+    creds = _FakeCreds()
+    monkeypatch.setattr(
+        vertex_client.google.auth, "default", lambda **kw: (creds, "proj")
+    )
+
     vertex_client.reset_adc_cache()
-    calls = []
-
-    def fake_check_output(cmd, text, timeout):
-        calls.append(cmd)
-        return f"token-{len(calls)}\n"
-
-    now = {"value": 1000.0}
-    monkeypatch.setattr(vertex_client.subprocess, "check_output", fake_check_output)
-    monkeypatch.setattr(vertex_client.time, "time", lambda: now["value"])
-
     assert vertex_client.get_adc_access_token() == "token-1"
-    now["value"] += 51 * 60
+
+    creds.valid = False
+    creds.expired = True
+
     assert vertex_client.get_adc_access_token() == "token-2"
+    assert creds.refresh_count == 2
+
+
+def test_reset_adc_cache_reloads_creds(monkeypatch):
+    from memoria_mcp import vertex_client
+
+    creds_a = _FakeCreds()
+    creds_b = _FakeCreds()
+    current = {"i": 0}
+
+    def fake_default(**kw):
+        current["i"] += 1
+        return ([creds_a, creds_b][current["i"] - 1], "proj")
+
+    monkeypatch.setattr(vertex_client.google.auth, "default", fake_default)
+
+    vertex_client.reset_adc_cache()
+    assert vertex_client.get_adc_access_token() == "token-1"
+
+    vertex_client.reset_adc_cache()
+    assert vertex_client.get_adc_access_token() == "token-1"
+    assert current["i"] == 2
 
 
 def test_auth_headers_use_bearer(monkeypatch):
